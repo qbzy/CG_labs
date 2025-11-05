@@ -77,11 +77,14 @@ struct Camera {
 
 // NOTE: Scene objects
 inline namespace {
-	Camera camera{
-		.position = {0.0f, -0.5f, -3.0f}
-	};
+        Camera camera{
+                .position = {0.0f, 0.0f, -4.0f}
+        };
 
-	std::vector<Model> models;
+        std::vector<Model> models;
+
+        size_t cube_model_index = 0;
+        size_t sphere_model_index = 0;
 }
 
 // NOTE: Vulkan objects
@@ -103,11 +106,11 @@ inline namespace {
         Mesh cube_mesh;
         Mesh sphere_mesh;
 
-	veekay::graphics::Texture* missing_texture;
-	VkSampler missing_texture_sampler;
+        veekay::graphics::Texture* missing_texture;
+        VkSampler missing_texture_sampler;
 
-	veekay::graphics::Texture* texture;
-	VkSampler texture_sampler;
+        veekay::graphics::Texture* texture;
+        VkSampler texture_sampler;
 }
 
 struct OrbitSettings {
@@ -133,7 +136,7 @@ inline namespace {
 }
 
 float toRadians(float degrees) {
-	return degrees * float(M_PI) / 180.0f;
+        return degrees * float(M_PI) / 180.0f;
 }
 
 veekay::mat4 Transform::matrix() const {
