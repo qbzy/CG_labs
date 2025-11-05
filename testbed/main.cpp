@@ -5,6 +5,8 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <algorithm>
+#include <limits>
 
 #include <veekay/veekay.hpp>
 
@@ -17,10 +19,11 @@ namespace {
 constexpr uint32_t max_models = 1024;
 
 struct Vertex {
-	veekay::vec3 position;
-	veekay::vec3 normal;
-	veekay::vec2 uv;
-	// NOTE: You can add more attributes
+        veekay::vec3 position;
+        veekay::vec3 normal;
+        veekay::vec3 color;
+        veekay::vec2 uv;
+        // NOTE: You can add more attributes
 };
 
 struct SceneUniforms {
@@ -97,8 +100,9 @@ inline namespace {
 	VkPipeline pipeline;
 
 	veekay::graphics::Buffer* scene_uniforms_buffer;
-	veekay::graphics::Buffer* model_uniforms_buffer;
+        veekay::graphics::Buffer* model_uniforms_buffer;
 
+        Mesh plane_mesh;
         Mesh cube_mesh;
         Mesh sphere_mesh;
 
@@ -152,9 +156,9 @@ veekay::mat4 Camera::view() const {
 }
 
 veekay::mat4 Camera::view_projection(float aspect_ratio) const {
-	auto projection = veekay::mat4::projection(fov, aspect_ratio, near_plane, far_plane);
+        auto projection = veekay::mat4::projection(fov, aspect_ratio, near_plane, far_plane);
 
-	return view() * projection;
+        return projection * view();
 }
 
 // NOTE: Loads shader byte code from file
@@ -227,26 +231,32 @@ void initialize(VkCommandBuffer cmd) {
 		};
 
 		// NOTE: Declare vertex attributes
-		VkVertexInputAttributeDescription attributes[] = {
-			{
-				.location = 0, // NOTE: First attribute
-				.binding = 0, // NOTE: First vertex buffer
-				.format = VK_FORMAT_R32G32B32_SFLOAT, // NOTE: 3-component vector of floats
-				.offset = offsetof(Vertex, position), // NOTE: Offset of "position" field in a Vertex struct
-			},
-			{
-				.location = 1,
-				.binding = 0,
-				.format = VK_FORMAT_R32G32B32_SFLOAT,
-				.offset = offsetof(Vertex, normal),
-			},
-			{
-				.location = 2,
-				.binding = 0,
-				.format = VK_FORMAT_R32G32_SFLOAT,
-				.offset = offsetof(Vertex, uv),
-			},
-		};
+                VkVertexInputAttributeDescription attributes[] = {
+                        {
+                                .location = 0, // NOTE: First attribute
+                                .binding = 0, // NOTE: First vertex buffer
+                                .format = VK_FORMAT_R32G32B32_SFLOAT, // NOTE: 3-component vector of floats
+                                .offset = offsetof(Vertex, position), // NOTE: Offset of "position" field in a Vertex struct
+                        },
+                        {
+                                .location = 1,
+                                .binding = 0,
+                                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                                .offset = offsetof(Vertex, normal),
+                        },
+                        {
+                                .location = 2,
+                                .binding = 0,
+                                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                                .offset = offsetof(Vertex, color),
+                        },
+                        {
+                                .location = 3,
+                                .binding = 0,
+                                .format = VK_FORMAT_R32G32_SFLOAT,
+                                .offset = offsetof(Vertex, uv),
+                        },
+                };
 
 		// NOTE: Describe inputs
 		VkPipelineVertexInputStateCreateInfo input_state_info{
@@ -868,12 +878,12 @@ void render(VkCommandBuffer cmd, VkFramebuffer framebuffer) {
 	VkBuffer current_vertex_buffer = VK_NULL_HANDLE;
 	VkBuffer current_index_buffer = VK_NULL_HANDLE;
 
-	const size_t model_uniorms_alignment =
-		veekay::graphics::Buffer::structureAlignment(sizeof(ModelUniforms));
+        const size_t model_uniforms_alignment =
+                veekay::graphics::Buffer::structureAlignment(sizeof(ModelUniforms));
 
-	for (size_t i = 0, n = models.size(); i < n; ++i) {
-		const Model& model = models[i];
-		const Mesh& mesh = model.mesh;
+        for (size_t i = 0, n = models.size(); i < n; ++i) {
+                const Model& model = models[i];
+                const Mesh& mesh = model.mesh;
 
 		if (current_vertex_buffer != mesh.vertex_buffer->buffer) {
 			current_vertex_buffer = mesh.vertex_buffer->buffer;
@@ -885,9 +895,9 @@ void render(VkCommandBuffer cmd, VkFramebuffer framebuffer) {
 			vkCmdBindIndexBuffer(cmd, current_index_buffer, zero_offset, VK_INDEX_TYPE_UINT32);
 		}
 
-		uint32_t offset = i * model_uniorms_alignment;
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout,
-		                    0, 1, &descriptor_set, 1, &offset);
+                uint32_t offset = static_cast<uint32_t>(i * model_uniforms_alignment);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout,
+                                    0, 1, &descriptor_set, 1, &offset);
 
 		vkCmdDrawIndexed(cmd, mesh.indices, 1, 0, 0, 0);
 	}
