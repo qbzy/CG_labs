@@ -5,6 +5,8 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <algorithm>
+#include <limits>
 
 #include <veekay/veekay.hpp>
 
@@ -17,10 +19,11 @@ namespace {
 constexpr uint32_t max_models = 1024;
 
 struct Vertex {
-	veekay::vec3 position;
-	veekay::vec3 normal;
-	veekay::vec2 uv;
-	// NOTE: You can add more attributes
+        veekay::vec3 position;
+        veekay::vec3 normal;
+        veekay::vec3 color;
+        veekay::vec2 uv;
+        // NOTE: You can add more attributes
 };
 
 struct SceneUniforms {
@@ -83,8 +86,8 @@ inline namespace {
 
 // NOTE: Vulkan objects
 inline namespace {
-	VkShaderModule vertex_shader_module;
-	VkShaderModule fragment_shader_module;
+        VkShaderModule vertex_shader_module;
+        VkShaderModule fragment_shader_module;
 
 	VkDescriptorPool descriptor_pool;
 	VkDescriptorSetLayout descriptor_set_layout;
@@ -94,10 +97,11 @@ inline namespace {
 	VkPipeline pipeline;
 
 	veekay::graphics::Buffer* scene_uniforms_buffer;
-	veekay::graphics::Buffer* model_uniforms_buffer;
+        veekay::graphics::Buffer* model_uniforms_buffer;
 
-	Mesh plane_mesh;
-	Mesh cube_mesh;
+        Mesh plane_mesh;
+        Mesh cube_mesh;
+        Mesh sphere_mesh;
 
 	veekay::graphics::Texture* missing_texture;
 	VkSampler missing_texture_sampler;
@@ -106,30 +110,63 @@ inline namespace {
 	VkSampler texture_sampler;
 }
 
+struct OrbitSettings {
+        float radius = 1.5f;
+        float height = 0.5f;
+        float angular_speed = 1.0f; // radians per second
+};
+
+struct OrbitState {
+        OrbitSettings settings{};
+        float accumulated_time = 0.0f;
+        int direction = 1;
+        bool paused = false;
+};
+
+inline namespace {
+        OrbitState orbit_state{};
+        double last_frame_time = 0.0;
+        bool first_frame = true;
+        size_t plane_model_index = std::numeric_limits<size_t>::max();
+        size_t cube_model_index = std::numeric_limits<size_t>::max();
+        size_t sphere_model_index = std::numeric_limits<size_t>::max();
+}
+
 float toRadians(float degrees) {
 	return degrees * float(M_PI) / 180.0f;
 }
 
 veekay::mat4 Transform::matrix() const {
-	// TODO: Scaling and rotation
+        auto translation = veekay::mat4::translation(position);
+        auto scaling = veekay::mat4::scaling(scale);
 
-	auto t = veekay::mat4::translation(position);
+        auto rotation_x = veekay::mat4::rotation({1.0f, 0.0f, 0.0f}, toRadians(rotation.x));
+        auto rotation_y = veekay::mat4::rotation({0.0f, 1.0f, 0.0f}, toRadians(rotation.y));
+        auto rotation_z = veekay::mat4::rotation({0.0f, 0.0f, 1.0f}, toRadians(rotation.z));
 
-	return t;
+        auto rotation_matrix = rotation_z * rotation_y * rotation_x;
+
+        return translation * rotation_matrix * scaling;
 }
 
 veekay::mat4 Camera::view() const {
-	// TODO: Rotation
+        auto rotation_x = veekay::mat4::rotation({1.0f, 0.0f, 0.0f}, toRadians(rotation.x));
+        auto rotation_y = veekay::mat4::rotation({0.0f, 1.0f, 0.0f}, toRadians(rotation.y));
+        auto rotation_z = veekay::mat4::rotation({0.0f, 0.0f, 1.0f}, toRadians(rotation.z));
 
-	auto t = veekay::mat4::translation(-position);
+        auto rotation_matrix = rotation_z * rotation_y * rotation_x;
+        auto rotation_inverse = veekay::mat4::transpose(rotation_matrix);
+        auto translation = veekay::mat4::translation(-position);
 
-	return t;
+        return rotation_inverse * translation;
 }
 
 veekay::mat4 Camera::view_projection(float aspect_ratio) const {
-	auto projection = veekay::mat4::projection(fov, aspect_ratio, near_plane, far_plane);
+        auto projection = veekay::mat4::projection(fov, aspect_ratio, near_plane, far_plane);
 
-	return view() * projection;
+        // NOTE: Shaders expect P * V * M composition (gl_Position = VP * position).
+        //       Keep that order so clip-space coordinates remain correct.
+        return projection * view();
 }
 
 // NOTE: Loads shader byte code from file
@@ -202,26 +239,32 @@ void initialize(VkCommandBuffer cmd) {
 		};
 
 		// NOTE: Declare vertex attributes
-		VkVertexInputAttributeDescription attributes[] = {
-			{
-				.location = 0, // NOTE: First attribute
-				.binding = 0, // NOTE: First vertex buffer
-				.format = VK_FORMAT_R32G32B32_SFLOAT, // NOTE: 3-component vector of floats
-				.offset = offsetof(Vertex, position), // NOTE: Offset of "position" field in a Vertex struct
-			},
-			{
-				.location = 1,
-				.binding = 0,
-				.format = VK_FORMAT_R32G32B32_SFLOAT,
-				.offset = offsetof(Vertex, normal),
-			},
-			{
-				.location = 2,
-				.binding = 0,
-				.format = VK_FORMAT_R32G32_SFLOAT,
-				.offset = offsetof(Vertex, uv),
-			},
-		};
+                VkVertexInputAttributeDescription attributes[] = {
+                        {
+                                .location = 0, // NOTE: First attribute
+                                .binding = 0, // NOTE: First vertex buffer
+                                .format = VK_FORMAT_R32G32B32_SFLOAT, // NOTE: 3-component vector of floats
+                                .offset = offsetof(Vertex, position), // NOTE: Offset of "position" field in a Vertex struct
+                        },
+                        {
+                                .location = 1,
+                                .binding = 0,
+                                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                                .offset = offsetof(Vertex, normal),
+                        },
+                        {
+                                .location = 2,
+                                .binding = 0,
+                                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                                .offset = offsetof(Vertex, color),
+                        },
+                        {
+                                .location = 3,
+                                .binding = 0,
+                                .format = VK_FORMAT_R32G32_SFLOAT,
+                                .offset = offsetof(Vertex, uv),
+                        },
+                };
 
 		// NOTE: Describe inputs
 		VkPipelineVertexInputStateCreateInfo input_state_info{
@@ -505,12 +548,12 @@ void initialize(VkCommandBuffer cmd) {
 		//  |   `--,   |
 		//  |       \  |
 		// (v3)------(v2)
-		std::vector<Vertex> vertices = {
-			{{-5.0f, 0.0f, 5.0f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
-			{{5.0f, 0.0f, 5.0f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}},
-			{{5.0f, 0.0f, -5.0f}, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}},
-			{{-5.0f, 0.0f, -5.0f}, {0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}},
-		};
+                std::vector<Vertex> vertices = {
+                        {{-5.0f, 0.0f, 5.0f}, {0.0f, -1.0f, 0.0f}, {0.3f, 0.4f, 0.3f}, {0.0f, 0.0f}},
+                        {{5.0f, 0.0f, 5.0f}, {0.0f, -1.0f, 0.0f}, {0.4f, 0.5f, 0.4f}, {1.0f, 0.0f}},
+                        {{5.0f, 0.0f, -5.0f}, {0.0f, -1.0f, 0.0f}, {0.5f, 0.6f, 0.5f}, {1.0f, 1.0f}},
+                        {{-5.0f, 0.0f, -5.0f}, {0.0f, -1.0f, 0.0f}, {0.4f, 0.5f, 0.4f}, {0.0f, 1.0f}},
+                };
 
 		std::vector<uint32_t> indices = {
 			0, 1, 2, 2, 3, 0
@@ -527,39 +570,39 @@ void initialize(VkCommandBuffer cmd) {
 		plane_mesh.indices = uint32_t(indices.size());
 	}
 
-	// NOTE: Cube mesh initialization
-	{
-		std::vector<Vertex> vertices = {
-			{{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 0.0f}},
-			{{+0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f}},
-			{{+0.5f, +0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 1.0f}},
-			{{-0.5f, +0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f}},
+        // NOTE: Cube mesh initialization
+        {
+                std::vector<Vertex> vertices = {
+                        {{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+                        {{+0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+                        {{+0.5f, +0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
+                        {{-0.5f, +0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
 
-			{{+0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-			{{+0.5f, -0.5f, +0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-			{{+0.5f, +0.5f, +0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
-			{{+0.5f, +0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
+                        {{+0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+                        {{+0.5f, -0.5f, +0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+                        {{+0.5f, +0.5f, +0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+                        {{+0.5f, +0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
 
-			{{+0.5f, -0.5f, +0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
-			{{-0.5f, -0.5f, +0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
-			{{-0.5f, +0.5f, +0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-			{{+0.5f, +0.5f, +0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+                        {{+0.5f, -0.5f, +0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+                        {{-0.5f, -0.5f, +0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+                        {{-0.5f, +0.5f, +0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+                        {{+0.5f, +0.5f, +0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
 
-			{{-0.5f, -0.5f, +0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-			{{-0.5f, -0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-			{{-0.5f, +0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
-			{{-0.5f, +0.5f, +0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
+                        {{-0.5f, -0.5f, +0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+                        {{-0.5f, -0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+                        {{-0.5f, +0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
+                        {{-0.5f, +0.5f, +0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
 
-			{{-0.5f, -0.5f, +0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
-			{{+0.5f, -0.5f, +0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}},
-			{{+0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}},
-			{{-0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}},
+                        {{-0.5f, -0.5f, +0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+                        {{+0.5f, -0.5f, +0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+                        {{+0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
+                        {{-0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
 
-			{{-0.5f, +0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-			{{+0.5f, +0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-			{{+0.5f, +0.5f, +0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
-			{{-0.5f, +0.5f, +0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
-		};
+                        {{-0.5f, +0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+                        {{+0.5f, +0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+                        {{+0.5f, +0.5f, +0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+                        {{-0.5f, +0.5f, +0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+                };
 
 		std::vector<uint32_t> indices = {
 			0, 1, 2, 2, 3, 0,
@@ -574,43 +617,113 @@ void initialize(VkCommandBuffer cmd) {
 			vertices.size() * sizeof(Vertex), vertices.data(),
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
-		cube_mesh.index_buffer = new veekay::graphics::Buffer(
-			indices.size() * sizeof(uint32_t), indices.data(),
-			VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+                cube_mesh.index_buffer = new veekay::graphics::Buffer(
+                        indices.size() * sizeof(uint32_t), indices.data(),
+                        VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 
-		cube_mesh.indices = uint32_t(indices.size());
-	}
+                cube_mesh.indices = uint32_t(indices.size());
+        }
 
-	// NOTE: Add models to scene
-	models.emplace_back(Model{
-		.mesh = plane_mesh,
-		.transform = Transform{},
-		.albedo_color = veekay::vec3{1.0f, 1.0f, 1.0f}
-	});
+        // NOTE: Sphere mesh initialization
+        {
+                const uint32_t slices = 64;
+                const uint32_t stacks = 32;
+                const float radius = 0.4f;
 
-	models.emplace_back(Model{
-		.mesh = cube_mesh,
-		.transform = Transform{
-			.position = {-2.0f, -0.5f, -1.5f},
-		},
-		.albedo_color = veekay::vec3{1.0f, 0.0f, 0.0f}
-	});
+                std::vector<Vertex> vertices;
+                vertices.reserve((slices + 1) * (stacks + 1));
 
-	models.emplace_back(Model{
-		.mesh = cube_mesh,
-		.transform = Transform{
-			.position = {1.5f, -0.5f, -0.5f},
-		},
-		.albedo_color = veekay::vec3{0.0f, 1.0f, 0.0f}
-	});
+                for (uint32_t stack = 0; stack <= stacks; ++stack) {
+                        float v = float(stack) / float(stacks);
+                        float phi = v * float(M_PI);
+                        float sin_phi = sinf(phi);
+                        float cos_phi = cosf(phi);
 
-	models.emplace_back(Model{
-		.mesh = cube_mesh,
-		.transform = Transform{
-			.position = {0.0f, -0.5f, 1.0f},
-		},
-		.albedo_color = veekay::vec3{0.0f, 0.0f, 1.0f}
-	});
+                        for (uint32_t slice = 0; slice <= slices; ++slice) {
+                                float u = float(slice) / float(slices);
+                                float theta = u * 2.0f * float(M_PI);
+                                float sin_theta = sinf(theta);
+                                float cos_theta = cosf(theta);
+
+                                veekay::vec3 normal{
+                                        sin_phi * cos_theta,
+                                        cos_phi,
+                                        sin_phi * sin_theta,
+                                };
+
+                                veekay::vec3 position = normal * radius;
+                                veekay::vec3 color = (normal + veekay::vec3{1.0f, 1.0f, 1.0f}) * 0.5f;
+
+                                vertices.push_back(Vertex{
+                                        .position = position,
+                                        .normal = normal,
+                                        .color = color,
+                                        .uv = {u, 1.0f - v},
+                                });
+                        }
+                }
+
+                std::vector<uint32_t> indices;
+                indices.reserve(stacks * slices * 6);
+
+                for (uint32_t stack = 0; stack < stacks; ++stack) {
+                        for (uint32_t slice = 0; slice < slices; ++slice) {
+                                uint32_t first = stack * (slices + 1) + slice;
+                                uint32_t second = first + slices + 1;
+
+                                indices.push_back(first);
+                                indices.push_back(second);
+                                indices.push_back(first + 1);
+
+                                indices.push_back(second);
+                                indices.push_back(second + 1);
+                                indices.push_back(first + 1);
+                        }
+                }
+
+                sphere_mesh.vertex_buffer = new veekay::graphics::Buffer(
+                        vertices.size() * sizeof(Vertex), vertices.data(),
+                        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+
+                sphere_mesh.index_buffer = new veekay::graphics::Buffer(
+                        indices.size() * sizeof(uint32_t), indices.data(),
+                        VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
+                sphere_mesh.indices = uint32_t(indices.size());
+        }
+
+        orbit_state = {};
+        last_frame_time = 0.0;
+        first_frame = true;
+
+        // NOTE: Add models to scene
+        models.clear();
+
+        plane_model_index = models.size();
+        models.emplace_back(Model{
+                .mesh = plane_mesh,
+                .transform = Transform{},
+                .albedo_color = veekay::vec3{0.9f, 0.9f, 0.9f}
+        });
+
+        cube_model_index = models.size();
+        models.emplace_back(Model{
+                .mesh = cube_mesh,
+                .transform = Transform{
+                        .position = {0.0f, 0.0f, 0.0f},
+                },
+                .albedo_color = veekay::vec3{1.0f, 1.0f, 1.0f}
+        });
+
+        sphere_model_index = models.size();
+        models.emplace_back(Model{
+                .mesh = sphere_mesh,
+                .transform = Transform{
+                        .position = {orbit_state.settings.radius, orbit_state.settings.height, 0.0f},
+                        .scale = {0.5f, 0.5f, 0.5f},
+                },
+                .albedo_color = veekay::vec3{0.8f, 0.9f, 1.0f}
+        });
 }
 
 // NOTE: Destroy resources here, do not cause leaks in your program!
@@ -620,11 +733,14 @@ void shutdown() {
 	vkDestroySampler(device, missing_texture_sampler, nullptr);
 	delete missing_texture;
 
-	delete cube_mesh.index_buffer;
-	delete cube_mesh.vertex_buffer;
+        delete cube_mesh.index_buffer;
+        delete cube_mesh.vertex_buffer;
 
-	delete plane_mesh.index_buffer;
-	delete plane_mesh.vertex_buffer;
+        delete sphere_mesh.index_buffer;
+        delete sphere_mesh.vertex_buffer;
+
+        delete plane_mesh.index_buffer;
+        delete plane_mesh.vertex_buffer;
 
 	delete model_uniforms_buffer;
 	delete scene_uniforms_buffer;
@@ -639,48 +755,123 @@ void shutdown() {
 }
 
 void update(double time) {
-	ImGui::Begin("Controls:");
-	ImGui::End();
+        float delta_time = 0.0f;
+        if (first_frame) {
+                last_frame_time = time;
+                first_frame = false;
+        } else {
+                delta_time = static_cast<float>(time - last_frame_time);
+                last_frame_time = time;
+        }
 
-	if (!ImGui::IsWindowHovered()) {
-		using namespace veekay::input;
+        ImGui::Begin("Controls:");
+        ImGui::SliderFloat("Orbit radius", &orbit_state.settings.radius, 0.5f, 5.0f);
+        ImGui::SliderFloat("Orbit height", &orbit_state.settings.height, -2.0f, 2.0f);
+        ImGui::SliderFloat("Orbit speed", &orbit_state.settings.angular_speed, 0.1f, 5.0f, "%.2f rad/s");
+        if (ImGui::Button(orbit_state.paused ? "Resume orbit" : "Pause orbit")) {
+                orbit_state.paused = !orbit_state.paused;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reverse direction")) {
+                orbit_state.direction *= -1;
+        }
+        ImGui::Text("Direction: %s", orbit_state.direction > 0 ? "Counter-clockwise" : "Clockwise");
+        ImGui::End();
 
-		if (mouse::isButtonDown(mouse::Button::left)) {
-			auto move_delta = mouse::cursorDelta();
+        if (!ImGui::GetIO().WantCaptureMouse) {
+                using namespace veekay::input;
 
-			// TODO: Use mouse_delta to update camera rotation
-			
-			auto view = camera.view();
+                if (mouse::isButtonDown(mouse::Button::left)) {
+                        const float sensitivity = 0.1f;
+                        veekay::vec2 move_delta = mouse::cursorDelta();
 
-			// TODO: Calculate right, up and front from view matrix
-			veekay::vec3 right = {1.0f, 0.0f, 0.0f};
-			veekay::vec3 up = {0.0f, -1.0f, 0.0f};
-			veekay::vec3 front = {0.0f, 0.0f, 1.0f};
+                        camera.rotation.x = std::clamp(camera.rotation.x + move_delta.y * sensitivity, -89.0f, 89.0f);
+                        camera.rotation.y += move_delta.x * sensitivity;
 
-			if (keyboard::isKeyDown(keyboard::Key::w))
-				camera.position += front * 0.1f;
+                        if (camera.rotation.y > 180.0f)
+                                camera.rotation.y -= 360.0f;
+                        else if (camera.rotation.y < -180.0f)
+                                camera.rotation.y += 360.0f;
 
-			if (keyboard::isKeyDown(keyboard::Key::s))
-				camera.position -= front * 0.1f;
+                        auto normalize = [](const veekay::vec3& v) {
+                                float length = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+                                if (length <= 0.0001f)
+                                        return veekay::vec3{0.0f, 0.0f, 0.0f};
+                                return veekay::vec3{v.x / length, v.y / length, v.z / length};
+                        };
 
-			if (keyboard::isKeyDown(keyboard::Key::d))
-				camera.position += right * 0.1f;
+                        float pitch = toRadians(camera.rotation.x);
+                        float yaw = toRadians(camera.rotation.y);
 
-			if (keyboard::isKeyDown(keyboard::Key::a))
-				camera.position -= right * 0.1f;
+                        veekay::vec3 front = normalize({
+                                std::cos(pitch) * std::sin(yaw),
+                                std::sin(pitch),
+                                std::cos(pitch) * std::cos(yaw),
+                        });
 
-			if (keyboard::isKeyDown(keyboard::Key::q))
-				camera.position += up * 0.1f;
+                        const float half_pi = 0.5f * float(M_PI);
 
-			if (keyboard::isKeyDown(keyboard::Key::z))
-				camera.position -= up * 0.1f;
-		}
-	}
+                        veekay::vec3 right = normalize({
+                                std::sin(yaw - half_pi),
+                                0.0f,
+                                std::cos(yaw - half_pi),
+                        });
 
-	float aspect_ratio = float(veekay::app.window_width) / float(veekay::app.window_height);
-	SceneUniforms scene_uniforms{
-		.view_projection = camera.view_projection(aspect_ratio),
-	};
+                        veekay::vec3 up = normalize({
+                                right.y * front.z - right.z * front.y,
+                                right.z * front.x - right.x * front.z,
+                                right.x * front.y - right.y * front.x,
+                        });
+
+                        const float move_speed = 3.0f * delta_time;
+
+                        if (keyboard::isKeyDown(keyboard::Key::w))
+                                camera.position += front * move_speed;
+
+                        if (keyboard::isKeyDown(keyboard::Key::s))
+                                camera.position -= front * move_speed;
+
+                        if (keyboard::isKeyDown(keyboard::Key::d))
+                                camera.position += right * move_speed;
+
+                        if (keyboard::isKeyDown(keyboard::Key::a))
+                                camera.position -= right * move_speed;
+
+                        if (keyboard::isKeyDown(keyboard::Key::q))
+                                camera.position += up * move_speed;
+
+                        if (keyboard::isKeyDown(keyboard::Key::z))
+                                camera.position -= up * move_speed;
+                }
+        }
+
+        if (!orbit_state.paused) {
+                orbit_state.accumulated_time += delta_time * static_cast<float>(orbit_state.direction);
+        }
+
+        Model& cube_model = models[cube_model_index];
+        Model& sphere_model = models[sphere_model_index];
+
+        float angle = orbit_state.settings.angular_speed * orbit_state.accumulated_time;
+        float radius = std::max(0.1f, orbit_state.settings.radius);
+
+        sphere_model.transform.position = {
+                cube_model.transform.position.x + std::cos(angle) * radius,
+                cube_model.transform.position.y + orbit_state.settings.height,
+                cube_model.transform.position.z + std::sin(angle) * radius,
+        };
+
+        float tangent_angle = angle + 0.5f * float(M_PI);
+        sphere_model.transform.rotation = {
+                0.0f,
+                -tangent_angle * 180.0f / float(M_PI),
+                0.0f,
+        };
+
+        float aspect_ratio = float(veekay::app.window_width) / float(veekay::app.window_height);
+        SceneUniforms scene_uniforms{
+                .view_projection = camera.view_projection(aspect_ratio),
+        };
 
 	std::vector<ModelUniforms> model_uniforms(models.size());
 	for (size_t i = 0, n = models.size(); i < n; ++i) {
@@ -745,12 +936,12 @@ void render(VkCommandBuffer cmd, VkFramebuffer framebuffer) {
 	VkBuffer current_vertex_buffer = VK_NULL_HANDLE;
 	VkBuffer current_index_buffer = VK_NULL_HANDLE;
 
-	const size_t model_uniorms_alignment =
-		veekay::graphics::Buffer::structureAlignment(sizeof(ModelUniforms));
+        const size_t model_uniforms_alignment =
+                veekay::graphics::Buffer::structureAlignment(sizeof(ModelUniforms));
 
-	for (size_t i = 0, n = models.size(); i < n; ++i) {
-		const Model& model = models[i];
-		const Mesh& mesh = model.mesh;
+        for (size_t i = 0, n = models.size(); i < n; ++i) {
+                const Model& model = models[i];
+                const Mesh& mesh = model.mesh;
 
 		if (current_vertex_buffer != mesh.vertex_buffer->buffer) {
 			current_vertex_buffer = mesh.vertex_buffer->buffer;
@@ -762,9 +953,9 @@ void render(VkCommandBuffer cmd, VkFramebuffer framebuffer) {
 			vkCmdBindIndexBuffer(cmd, current_index_buffer, zero_offset, VK_INDEX_TYPE_UINT32);
 		}
 
-		uint32_t offset = i * model_uniorms_alignment;
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout,
-		                    0, 1, &descriptor_set, 1, &offset);
+                uint32_t offset = static_cast<uint32_t>(i * model_uniforms_alignment);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout,
+                                    0, 1, &descriptor_set, 1, &offset);
 
 		vkCmdDrawIndexed(cmd, mesh.indices, 1, 0, 0, 0);
 	}
