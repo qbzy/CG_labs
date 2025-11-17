@@ -20,7 +20,7 @@ struct Vertex {
 	veekay::vec3 position;
 	veekay::vec3 normal;
 	veekay::vec2 uv;
-	// NOTE: You can add more attributes
+
 };
 
 struct SceneUniforms {
