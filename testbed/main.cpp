@@ -115,7 +115,7 @@ constexpr float rotation_sensitivity = 0.0025f;
 constexpr float max_pitch = 1.5f;
 constexpr float movement_speed = 4.0f;
 
-float orbit_radius = 1.5f;
+float orbit_radius = 2.5f;
 float orbit_height = 0.0f;
 float orbit_speed = 1.0f;
 float orbit_angle = 0.0f;
@@ -187,14 +187,14 @@ void initialize(VkCommandBuffer cmd) {
 	VkPhysicalDevice& physical_device = veekay::app.vk_physical_device;
 
 	{ // NOTE: Build graphics pipeline
-		vertex_shader_module = loadShaderModule("./shaders/shader.vert.spv");
+		vertex_shader_module = loadShaderModule("C:/Users/mrbor/CLionProjects/CG_labs/shaders/shader.vert.spv");
 		if (!vertex_shader_module) {
 			std::cerr << "Failed to load Vulkan vertex shader from file\n";
 			veekay::app.running = false;
 			return;
 		}
 
-		fragment_shader_module = loadShaderModule("./shaders/shader.frag.spv");
+		fragment_shader_module = loadShaderModule("C:/Users/mrbor/CLionProjects/CG_labs/shaders/shader.frag.spv");
 		if (!fragment_shader_module) {
 			std::cerr << "Failed to load Vulkan fragment shader from file\n";
 			veekay::app.running = false;
@@ -709,15 +709,11 @@ void update(double time) {
                 delta_time = 0.0f;
 
         ImGui::Begin("Controls");
-        ImGui::SliderFloat("Field of view", &camera.fov, 30.0f, 120.0f);
-        ImGui::SliderFloat("Orbit radius", &orbit_radius, 0.5f, 5.0f);
-        ImGui::SliderFloat("Orbit height", &orbit_height, -2.0f, 2.0f);
         ImGui::SliderFloat("Orbit speed", &orbit_speed, -5.0f, 5.0f);
         ImGui::Checkbox("Animate orbit", &orbit_animation_enabled);
         if (!orbit_animation_enabled) {
                 ImGui::SliderFloat("Orbit angle", &orbit_angle, 0.0f, 2.0f * float(M_PI));
         }
-        ImGui::SliderFloat("Sphere scale", &sphere_scale, 0.25f, 1.5f);
         ImGui::End();
 
         const float two_pi = 2.0f * float(M_PI);
@@ -733,7 +729,7 @@ void update(double time) {
         auto& cube = models[cube_model_index];
         auto& sphere = models[sphere_model_index];
 
-        sphere.transform.scale = {sphere_scale, sphere_scale, sphere_scale};
+//        sphere.transform.scale = {sphere_scale, sphere_scale, sphere_scale};
 
         float cos_angle = std::cos(orbit_angle);
         float sin_angle = std::sin(orbit_angle);
@@ -744,7 +740,7 @@ void update(double time) {
                 cube.transform.position.z + sin_angle * orbit_radius,
         };
 
-        sphere.transform.rotation = {0.0f, -orbit_angle, 0.0f};
+//        sphere.transform.rotation = {0.0f, -orbit_angle, 0.0f};
 
         const ImGuiIO& io = ImGui::GetIO();
 
