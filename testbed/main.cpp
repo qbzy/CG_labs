@@ -162,14 +162,14 @@ void initialize(VkCommandBuffer cmd) {
 	VkPhysicalDevice& physical_device = veekay::app.vk_physical_device;
 
 	{ // NOTE: Build graphics pipeline
-		vertex_shader_module = loadShaderModule("./shaders/shader.vert.spv");
+		vertex_shader_module = loadShaderModule("C:/Users/mrbor/CLionProjects/CG_labs/shaders/shader.vert.spv");
 		if (!vertex_shader_module) {
 			std::cerr << "Failed to load Vulkan vertex shader from file\n";
 			veekay::app.running = false;
 			return;
 		}
 
-		fragment_shader_module = loadShaderModule("./shaders/shader.frag.spv");
+		fragment_shader_module = loadShaderModule("C:/Users/mrbor/CLionProjects/CG_labs/shaders/shader.frag.spv");
 		if (!fragment_shader_module) {
 			std::cerr << "Failed to load Vulkan fragment shader from file\n";
 			veekay::app.running = false;
