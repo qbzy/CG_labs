@@ -8,18 +8,19 @@ layout (location = 0) out vec3 f_position_world;
 layout (location = 1) out vec3 f_normal_world;
 layout (location = 2) out vec2 f_uv;
 
-layout (binding = 0, std140) uniform SceneUniforms {
-	mat4 view_projection;
+layout (set = 0, binding = 0, std140) uniform SceneUniforms {
+        mat4 view_projection;
 };
 
-layout (push_constant) uniform ModelUniforms {
-	mat4 model;
-	vec3 albedo_color;
+layout (set = 0, binding = 1, std140) uniform ModelUniforms {
+        mat4 model;
+        vec3 albedo_color;
     float shininess;
     vec3 specular_color;
-    float use_texture;
-    int texture_index;
-    float _pad[2];
+    float use_albedo_texture;
+    float use_specular_texture;
+    float use_emissive_texture;
+    float emissive_strength;
 };
 
 void main() {
