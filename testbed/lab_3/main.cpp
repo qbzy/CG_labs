@@ -159,7 +159,7 @@ T clampValue(T value, T min_value, T max_value) {
 	if (value > max_value) return max_value;
 	return value;
 }
-
+//fdsjf
 // Вычисляет матрицу модели из компонентов трансформации
 veekay::mat4 Transform::matrix() const {
 	// Матрицы трансляции и масштабирования
