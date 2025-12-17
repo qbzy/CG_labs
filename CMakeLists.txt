@@ -3,12 +3,11 @@ include(FetchContent)
 
 project(veekay LANGUAGES C CXX)
 
-add_library(${PROJECT_NAME} source/veekay.cpp source/input.cpp source/graphics.cpp
-		testbed/lab_2/main.cpp)
+add_library(${PROJECT_NAME} source/veekay.cpp source/input.cpp source/graphics.cpp)
 
 target_include_directories(${PROJECT_NAME} PUBLIC
-	$<BUILD_INTERFACE:${veekay_SOURCE_DIR}/include>
-	$<INSTALL_INTERFACE:include>
+		$<BUILD_INTERFACE:${veekay_SOURCE_DIR}/include>
+		$<INSTALL_INTERFACE:include>
 )
 
 if(LINUX)
@@ -26,21 +25,21 @@ endif()
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD_REQUIRED TRUE CXX_STANDARD 20)
 
 FetchContent_Declare(
-	glfw
-	GIT_REPOSITORY https://github.com/glfw/glfw.git
-	GIT_TAG 3.4
+		glfw
+		GIT_REPOSITORY https://github.com/glfw/glfw.git
+		GIT_TAG 3.4
 )
 
 FetchContent_Declare(
-	vk-bootstrap
-	GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap
-	GIT_TAG v1.4.321
+		vk-bootstrap
+		GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap
+		GIT_TAG v1.4.321
 )
 
 FetchContent_Declare(
-	imgui
-	GIT_REPOSITORY https://github.com/ocornut/imgui
-	GIT_TAG v1.92.3
+		imgui
+		GIT_REPOSITORY https://github.com/ocornut/imgui
+		GIT_TAG v1.92.3
 )
 
 find_package(Vulkan REQUIRED)
@@ -52,51 +51,21 @@ set(GLFW_BUILD_DOCS OFF)
 
 FetchContent_MakeAvailable(glfw vk-bootstrap imgui)
 
-
+add_subdirectory(testbed)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
-	glfw
-	Vulkan::Vulkan
-	vk-bootstrap::vk-bootstrap
+		glfw
+		Vulkan::Vulkan
+		vk-bootstrap::vk-bootstrap
 )
 
 # Link ImGui
 target_include_directories(${PROJECT_NAME} PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_sources(${PROJECT_NAME} PRIVATE
-	${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-	${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
-	${imgui_SOURCE_DIR}/imgui.cpp
-	${imgui_SOURCE_DIR}/imgui_draw.cpp
-	${imgui_SOURCE_DIR}/imgui_tables.cpp
-	${imgui_SOURCE_DIR}/imgui_widgets.cpp
+		${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+		${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+		${imgui_SOURCE_DIR}/imgui.cpp
+		${imgui_SOURCE_DIR}/imgui_draw.cpp
+		${imgui_SOURCE_DIR}/imgui_tables.cpp
+		${imgui_SOURCE_DIR}/imgui_widgets.cpp
 )
-find_program(GLSLC_FOUND glslc)
-if(GLSLC_FOUND)
-	set(_SHADER_BINARIES)
-
-	macro(compile_shader SHADER_FILE)
-		set(SHADER_SOURCE ${CMAKE_SOURCE_DIR}/shaders/${SHADER_FILE})
-		set(SHADER_BINARY ${SHADER_FILE}.spv)
-		set(SHADER_BINARY_PATH ${CMAKE_SOURCE_DIR}/shaders/${SHADER_BINARY})
-
-		add_custom_command(
-				OUTPUT ${SHADER_BINARY_PATH}
-				COMMAND glslc ${SHADER_SOURCE} -o ${SHADER_BINARY_PATH}
-				DEPENDS ${SHADER_SOURCE}
-				COMMENT "Compiling ${SHADER_FILE} shader"
-		)
-
-		list(APPEND _SHADER_BINARIES ${SHADER_BINARY_PATH})
-	endmacro()
-
-	# To compile shader file, use compile_shader function with a file name
-	# of a shader inside shaders directory. See example below
-
-	compile_shader(shader.vert)
-	compile_shader(shader.frag)
-
-	add_custom_target(shaders DEPENDS ${_SHADER_BINARIES})
-	add_dependencies(${PROJECT_NAME} shaders)
-endif()
-
-add_subdirectory(testbed/lab_2)
